@@ -599,6 +599,7 @@ async function exportDependencies({
     if (saml2IdpId) {
       const saml2IdpData = await exportSaml2Provider({
         entityId: saml2IdpId,
+        options: { deps: options.deps },
         state,
       });
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -609,6 +610,7 @@ async function exportDependencies({
     if (saml2SpId) {
       const saml2SpData = await exportSaml2Provider({
         entityId: saml2SpId,
+        options: { deps: options.deps },
         state,
       });
       // eslint-disable-next-line @typescript-eslint/no-unused-vars

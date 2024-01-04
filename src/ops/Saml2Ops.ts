@@ -105,35 +105,42 @@ export type Saml2 = {
   /**
    * Export a single entity provider. The response can be saved to file as is.
    * @param {string} entityId Provider entity id
+   * @param {Saml2EntitiesExportOptions} options export options
    * @returns {Promise<Saml2ExportInterface>} Promise resolving to a Saml2ExportInterface object.
    */
-  exportSaml2Provider(entityId: string): Promise<Saml2ExportInterface>;
+  exportSaml2Provider(
+    entityId: string,
+    options?: Saml2EntitiesExportOptions
+  ): Promise<Saml2ExportInterface>;
   /**
    * Export all entity providers. The response can be saved to file as is.
+   * @param {Saml2EntitiesExportOptions} options export options
    * @returns {Promise<Saml2ExportInterface>} Promise resolving to a Saml2ExportInterface object.
    */
-  exportSaml2Providers(): Promise<Saml2ExportInterface>;
+  exportSaml2Providers(
+    options?: Saml2EntitiesExportOptions
+  ): Promise<Saml2ExportInterface>;
   /**
    * Import a SAML entity provider
    * @param {string} entityId Provider entity id
    * @param {Saml2ExportInterface} importData Import data
-   * @param {Saml2ProviderImportOptions} options import options
+   * @param {Saml2EntitiesImportOptions} options import options
    * @returns {Promise<Saml2ProviderSkeleton>} a promise resolving to a provider object
    */
   importSaml2Provider(
     entityId: string,
     importData: Saml2ExportInterface,
-    options: Saml2ProviderImportOptions
+    options: Saml2EntitiesImportOptions
   ): Promise<Saml2ProviderSkeleton>;
   /**
    * Import SAML entity providers
    * @param {Saml2ExportInterface} importData Import data
-   * @param {Saml2ProviderImportOptions} options import options
+   * @param {Saml2EntitiesImportOptions} options import options
    * @returns {Promise<Saml2ProviderSkeleton[]>} a promise resolving to an array of provider objects
    */
   importSaml2Providers(
     importData: Saml2ExportInterface,
-    options: Saml2ProviderImportOptions
+    options: Saml2EntitiesImportOptions
   ): Promise<Saml2ProviderSkeleton[]>;
 
   // Deprecated
@@ -233,22 +240,27 @@ export default (state: State): Saml2 => {
     async getSaml2ProviderMetadata(entityId: string) {
       return getSaml2ProviderMetadata({ entityId, state });
     },
-    async exportSaml2Provider(entityId: string): Promise<Saml2ExportInterface> {
-      return exportSaml2Provider({ entityId, state });
+    async exportSaml2Provider(
+      entityId: string,
+      options: Saml2EntitiesExportOptions = { deps: true }
+    ): Promise<Saml2ExportInterface> {
+      return exportSaml2Provider({ entityId, options, state });
     },
-    async exportSaml2Providers(): Promise<Saml2ExportInterface> {
-      return exportSaml2Providers({ state });
+    async exportSaml2Providers(
+      options: Saml2EntitiesExportOptions = { deps: true }
+    ): Promise<Saml2ExportInterface> {
+      return exportSaml2Providers({ options, state });
     },
     async importSaml2Provider(
       entityId: string,
       importData: Saml2ExportInterface,
-      options: Saml2ProviderImportOptions = { deps: true }
+      options: Saml2EntitiesImportOptions = { deps: true }
     ): Promise<Saml2ProviderSkeleton> {
       return importSaml2Provider({ entityId, importData, options, state });
     },
     async importSaml2Providers(
       importData: Saml2ExportInterface,
-      options: Saml2ProviderImportOptions = { deps: true }
+      options: Saml2EntitiesImportOptions = { deps: true }
     ): Promise<Saml2ProviderSkeleton[]> {
       return importSaml2Providers({ importData, options, state });
     },
@@ -276,7 +288,14 @@ export default (state: State): Saml2 => {
 /**
  * Saml2 provider import options
  */
-export interface Saml2ProviderImportOptions {
+export interface Saml2EntitiesImportOptions {
+  /**
+   * Include any dependencies (scripts).
+   */
+  deps: boolean;
+}
+
+export interface Saml2EntitiesExportOptions {
   /**
    * Include any dependencies (scripts).
    */
@@ -403,6 +422,18 @@ async function exportDependencies({
     scriptData.script = convertBase64TextToArray(scriptData.script);
     fileData.script[idpAdapterScriptId] = scriptData;
   }
+  const spAdapterScriptId = get(providerData, [
+    'serviceProvider',
+    'assertionProcessing',
+    'adapter',
+    'spAdapterScript',
+  ]);
+  if (spAdapterScriptId && spAdapterScriptId !== '[Empty]') {
+    const scriptData = await getScript({ scriptId: spAdapterScriptId, state });
+    scriptData.script = convertBase64TextToArray(scriptData.script);
+    fileData.script[spAdapterScriptId] = scriptData;
+  }
+
   const metaDataResponse = await getSaml2ProviderMetadata({
     entityId: providerData.entityId,
     state,
@@ -593,9 +624,11 @@ export async function deleteSaml2Providers({
  */
 export async function exportSaml2Provider({
   entityId,
+  options = { deps: true },
   state,
 }: {
   entityId: string;
+  options?: Saml2EntitiesExportOptions;
   state: State;
 }): Promise<Saml2ExportInterface> {
   debugMessage({
@@ -612,10 +645,12 @@ export async function exportSaml2Provider({
     state,
   });
   exportData.saml[stub.location][providerData._id] = providerData;
-  try {
-    await exportDependencies({ providerData, fileData: exportData, state });
-  } catch (error) {
-    printMessage({ message: error.message, type: 'error', state });
+  if (options.deps) {
+    try {
+      await exportDependencies({ providerData, fileData: exportData, state });
+    } catch (error) {
+      printMessage({ message: error.message, type: 'error', state });
+    }
   }
   debugMessage({
     message: `Saml2Ops.exportSaml2Provider: end [entityId=${entityId}]`,
@@ -629,8 +664,10 @@ export async function exportSaml2Provider({
  * @returns {Promise<Saml2ExportInterface>} Promise resolving to a Saml2ExportInterface object.
  */
 export async function exportSaml2Providers({
+  options = { deps: true },
   state,
 }: {
+  options?: Saml2EntitiesExportOptions;
   state: State;
 }): Promise<Saml2ExportInterface> {
   const fileData = createSaml2ExportTemplate({ state });
@@ -651,10 +688,12 @@ export async function exportSaml2Providers({
       entityId64: stub._id,
       state,
     });
-    try {
-      await exportDependencies({ providerData, fileData, state });
-    } catch (error) {
-      printMessage({ message: error.message, type: 'error', state });
+    if (options.deps) {
+      try {
+        await exportDependencies({ providerData, fileData, state });
+      } catch (error) {
+        printMessage({ message: error, type: 'error', state });
+      }
     }
     fileData.saml[stub.location][providerData._id] = providerData;
   }
@@ -671,7 +710,7 @@ export async function exportSaml2Providers({
  * @param {object} providerData Object representing a SAML entity provider
  * @param {object} fileData File data object to read dependencies from
  */
-async function importDependencies({
+export async function importDependencies({
   providerData,
   fileData,
   state,
@@ -711,6 +750,21 @@ async function importDependencies({
     scriptData.script = convertTextArrayToBase64(scriptData.script as string[]);
     await updateScript({ scriptId: idpAdapterScriptId, scriptData, state });
   }
+  const spAdapterScriptId = get(providerData, [
+    'serviceProvider',
+    'assertionProcessing',
+    'adapter',
+    'spAdapterScript',
+  ]);
+  if (spAdapterScriptId && spAdapterScriptId !== '[Empty]') {
+    debugMessage({
+      message: `Saml2Ops.importDependencies: spAdapterScriptId=${spAdapterScriptId}`,
+      state,
+    });
+    const scriptData = get(fileData, ['script', spAdapterScriptId]);
+    scriptData.script = convertTextArrayToBase64(scriptData.script as string[]);
+    await updateScript({ scriptId: spAdapterScriptId, scriptData, state });
+  }
   debugMessage({ message: `Saml2Ops.importDependencies: end`, state });
 }
 
@@ -737,7 +791,7 @@ function getLocation(
  * Import a SAML entity provider
  * @param {string} entityId Provider entity id
  * @param {Saml2ExportInterface} importData Import data
- * @param {Saml2ProviderImportOptions} options import options
+ * @param {Saml2EntitiesImportOptions} options import options
  * @returns {Promise<Saml2ProviderSkeleton>} a promise resolving to a provider object
  */
 export async function importSaml2Provider({
@@ -748,7 +802,7 @@ export async function importSaml2Provider({
 }: {
   entityId: string;
   importData: Saml2ExportInterface;
-  options: Saml2ProviderImportOptions;
+  options: Saml2EntitiesImportOptions;
   state: State;
 }): Promise<Saml2ProviderSkeleton> {
   debugMessage({ message: `Saml2Ops.importSaml2Provider: start`, state });
@@ -811,7 +865,7 @@ export async function importSaml2Provider({
 /**
  * Import SAML entity providers
  * @param {Saml2ExportInterface} importData Import data
- * @param {Saml2ProviderImportOptions} options import options
+ * @param {Saml2EntitiesImportOptions} options import options
  * @returns {Promise<Saml2ProviderSkeleton[]>} a promise resolving to an array of provider objects
  */
 export async function importSaml2Providers({
@@ -820,7 +874,7 @@ export async function importSaml2Providers({
   state,
 }: {
   importData: Saml2ExportInterface;
-  options: Saml2ProviderImportOptions;
+  options: Saml2EntitiesImportOptions;
   state: State;
 }): Promise<Saml2ProviderSkeleton[]> {
   debugMessage({ message: `Saml2Ops.importSaml2Providers: start`, state });

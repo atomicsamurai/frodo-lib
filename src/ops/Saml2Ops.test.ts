@@ -1,6 +1,10 @@
 /**
  * To record and update snapshots, you must perform 3 steps in order:
- *
+ * 
+ * *** Note: By default, the tests record against https://openam-frodo-dev.forgeblocks.com/am
+ * *** There are other host profiles defined in 'src/utils/TestConfig.ts' and you can use any one of
+ * *** those by setting `FRODO_TEST_HOST=frodo-dev` env var on the command line for the tests
+ * 
  * 1. Record API responses
  *
  *    This step breaks down into 5 phases:
@@ -18,13 +22,13 @@
  *    override all the connection state variables required to connect to the
  *    env to record from and also indicate the phase:
  *
- *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=1 FRODO_HOST=frodo-dev npm run test:record Saml2Ops
- *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=2 FRODO_HOST=frodo-dev npm run test:record Saml2Ops
+ *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=1 npm run test:record Saml2Ops
+ *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=2 npm run test:record Saml2Ops
  *
  *    THESE TESTS ARE DESTRUCTIVE!!! DO NOT RUN AGAINST AN ENV WITH ACTIVE CONFIGURATION!!!
  *
- *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=3 FRODO_HOST=frodo-dev npm run test:record Saml2Ops
- *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=4 FRODO_HOST=frodo-dev npm run test:record Saml2Ops
+ *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=3 npm run test:record Saml2Ops
+ *        FRODO_DEBUG=1 FRODO_RECORD_PHASE=4 npm run test:record Saml2Ops
  *
  *    The above command assumes that you have a connection profile for
  *    'frodo-dev' on your development machine.
@@ -56,8 +60,13 @@ import {
 } from '../test/mocks/ForgeRockApiMockEngine';
 import { encodeBase64Url } from '../utils/Base64Utils';
 import { autoSetupPolly, filterRecording } from '../utils/AutoSetupPolly';
-
+import { connection as c } from '../utils/TestConfig';
 const ctx = autoSetupPolly();
+
+const testHost = process.env.FRODO_TEST_HOST?process.env.FRODO_TEST_HOST:'frodo-dev';
+process.env.FRODO_HOST = 
+  c[`${testHost}`].host + 
+  c[`${testHost}`].context;
 
 state.setDeploymentType(Constants.CLOUD_DEPLOYMENT_TYPE_KEY);
 
@@ -218,6 +227,7 @@ describe('Saml2Ops', () => {
   beforeEach(async () => {
     if (process.env.FRODO_POLLY_MODE === 'record') {
       ctx.polly.server.any().on('beforePersist', (_req, recording) => {
+        // console.debug('filtering...');
         filterRecording(recording);
       });
     }
@@ -362,9 +372,10 @@ describe('Saml2Ops', () => {
         expect(Saml2Ops.exportSaml2Provider).toBeDefined();
       });
 
-      test(`1: Export hosted provider '${provider1.entityId}'`, async () => {
+      test(`1: Export hosted SP w/o dependencies '${provider1.entityId}'`, async () => {
         const response = await Saml2Ops.exportSaml2Provider({
           entityId: provider1.entityId,
+          options: { deps: false },
           state,
         });
         expect(response).toMatchSnapshot({
@@ -372,15 +383,61 @@ describe('Saml2Ops', () => {
         });
       });
 
-      test(`2: Export remote provider '${provider4.entityId}'`, async () => {
+      test(`2: Export hosted SP w/ dependencies '${provider1.entityId}'`, async () => {
         const response = await Saml2Ops.exportSaml2Provider({
-          entityId: provider4.entityId,
+          entityId: provider1.entityId,
+          options: { deps: true },
           state,
         });
         expect(response).toMatchSnapshot({
           meta: expect.any(Object),
         });
       });
+
+      test(`3: Export hosted IdP w/o dependencies '${provider3.entityId}'`, async () => {
+        const response = await Saml2Ops.exportSaml2Provider({
+          entityId: provider3.entityId,
+          options: { deps: false },
+          state,
+        });
+        expect(response).toMatchSnapshot({
+          meta: expect.any(Object),
+        });
+      });
+
+      test(`4: Export hosted IdP w/ dependencies '${provider3.entityId}'`, async () => {
+        const response = await Saml2Ops.exportSaml2Provider({
+          entityId: provider3.entityId,
+          options: { deps: true },
+          state,
+        });
+        expect(response).toMatchSnapshot({
+          meta: expect.any(Object),
+        });
+      });
+
+      test(`5: Export remote IdP '${provider4.entityId}'`, async () => {
+        const response = await Saml2Ops.exportSaml2Provider({
+          entityId: provider4.entityId,
+          options: { deps: false },
+          state,
+        });
+        expect(response).toMatchSnapshot({
+          meta: expect.any(Object),
+        });
+      });
+
+      test(`6: Export remote SP '${provider2.entityId}'`, async () => {
+        const response = await Saml2Ops.exportSaml2Provider({
+          entityId: provider4.entityId,
+          options: { deps: false },
+          state,
+        });
+        expect(response).toMatchSnapshot({
+          meta: expect.any(Object),
+        });
+      });
+
     });
 
     describe('exportSaml2Providers()', () => {
@@ -388,8 +445,15 @@ describe('Saml2Ops', () => {
         expect(Saml2Ops.exportSaml2Providers).toBeDefined();
       });
 
-      test('1: Export saml2 entity providers', async () => {
-        const response = await Saml2Ops.exportSaml2Providers({ state });
+      test('1: Export saml2 entity providers w/o dependencies', async () => {
+        const response = await Saml2Ops.exportSaml2Providers({ options: { deps: false },state });
+        expect(response).toMatchSnapshot({
+          meta: expect.any(Object),
+        });
+      });
+
+      test('1: Export saml2 entity providers w/ dependencies', async () => {
+        const response = await Saml2Ops.exportSaml2Providers({ options: { deps: true },state });
         expect(response).toMatchSnapshot({
           meta: expect.any(Object),
         });
@@ -415,22 +479,51 @@ describe('Saml2Ops', () => {
         expect(response).toMatchSnapshot();
       });
 
-      test(`2: Import hosted provider '${provider6.entityId}' no deps`, async () => {
+      test(`2: Import hosted provider w/ dependencies '${provider6.entityId}'`, async () => {
         expect.assertions(2);
+
+        let handleDependencyFlag = false;
+        console.debug(`sandlog: before handler`);
+        ctx.polly.server.host(c[`${testHost}`].host, () => {
+          ctx.polly.server.put('/am/json/*/scripts/:id').once('request', req => {
+            console.debug('sandlog: inside handler');
+            handleDependencyFlag = true;
+          });
+        })
+  
         const response = await Saml2Ops.importSaml2Provider({
           entityId: provider6.entityId,
           importData: getSaml2ProviderImportData(provider6.entityId),
-          options: {
-            deps: false
-          },
+          options: { deps: true },
           state,
         });
         expect(response).toBeTruthy();
-        expect(response).toMatchSnapshot();
+        expect(handleDependencyFlag).toBe(true);
       });
 
-      test(`3: Import remote provider '${provider7.entityId}' with metadata`, async () => {
+      test(`3: Import hosted provider w/o dependencies '${provider6.entityId}'`, async () => {
         expect.assertions(2);
+        let handleDependencyFlag = false;
+        // console.debug('sandlog: before intercept');
+        ctx.polly.server.host(c[`${testHost}`].host, () => {
+          ctx.polly.server.put('/am/json/*/scripts/:id').once('request', req => {
+            // console.debug('sandlog: inside intercept');
+            handleDependencyFlag = true;
+          });
+        })
+  
+        const response = await Saml2Ops.importSaml2Provider({
+          entityId: provider6.entityId,
+          importData: getSaml2ProviderImportData(provider6.entityId),
+          options: { deps: false },
+          state,
+        });
+        expect(response).toBeTruthy();
+        expect(handleDependencyFlag).toBe(false);
+      });
+
+      test(`4: Import remote provider '${provider7.entityId}' with metadata`, async () => {
+        expect.assertions(1);
         const response = await Saml2Ops.importSaml2Provider({
           entityId: provider7.entityId,
           importData: getSaml2ProviderImportData(provider7.entityId),
